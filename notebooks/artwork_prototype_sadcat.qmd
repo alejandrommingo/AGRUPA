@@ -1,0 +1,148 @@
+---
+title:               "SADCAT for artwork description prototype"
+author:              "Alejandro Martínez-Mingo"
+format:
+  html:
+    df-print:        paged
+    toc:             true
+    embed-resources: true
+editor:              source
+execute: 
+  output:            true
+  warning:           false
+---
+
+```{r setup}
+#| include: false
+
+# Set working directory
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+# Prototype for testing SADCAT with plain text description
+
+This is an internal notebook from the AGRUPA project designed to prototype the evaluation of stereotypes in descriptive texts of artworks extracted from the Museo del Prado collection using the SADCAT dictionary. The aim of this notebook is to allow project collaborators to replicate the code used (which depends on the files Data.R and Dictionary.R) in order to obtain scores across the different dimensions and facets provided by SADCAT, based on the Stereotype Content Model (as well as additional dimensions).
+
+The procedure followed is as follows:
+
+The descriptive text of the artwork is processed in order to extract:
+
+a) each potentially meaningful term from the description in isolation, treating it as a possible descriptor in SADCAT by applying normalization strategies and removing stopwords;
+
+b) normalized bigrams and trigrams without removing stopwords, treating them as potential descriptors in SADCAT.
+
+These descriptors are distributed across columns, and for each artwork (in the example, Las Meninas), global coverage metrics and dimension-level coverage metrics are obtained, together with the estimated direction in each dimension.
+
+Basic descriptive analyses are conducted to verify that the procedure has been executed correctly.
+
+```{r}
+# dependencies
+library(udpipe)
+```
+
+```{r}
+source("R/Data.R", encoding = 'UTF-8')
+source("R/Dictionary.R", encoding = 'UTF-8')
+```
+
+We download and load the udpipe model for the lematization.
+
+```{r}
+m <- udpipe_download_model(
+  language   = "spanish-ancora",       
+  model_dir  = here::here(),
+  overwrite  = FALSE           
+)
+ud_model <- udpipe_load_model(m$file_model)
+```
+
+We load the textual description of the artwork.
+
+```{r}
+mi_texto <- "Es una de las obras de mayor tamaño de Velázquez y en la que puso un mayor empeño para crear una composición a la vez compleja y creíble, que transmitiera la sensación de vida y realidad, y al mismo tiempo encerrara una densa red de significados. El pintor alcanzó su objetivo y el cuadro se convirtió en la única pintura a la que el tratadista Antonio Palomino dedicó un epígrafe en su historia de los pintores españoles (1724). Lo tituló En que se describe la más ilustre obra de don Diego Velázquez, y desde entonces no ha perdido su estatus de obra maestra. Gracias a Palomino sabemos que se pintó en 1656 en el Cuarto del Príncipe del Alcázar de Madrid, que es el escenario de la acción. El tratadista cordobés también identificó a la mayor parte de los personajes: son servidores palaciegos, que se disponen alrededor de la infanta Margarita, a la que atienden doña María Agustina Sarmiento y doña Isabel de Velasco, meninas de la reina. Además de ese grupo, vemos a Velázquez trabajar ante un gran lienzo, a Mari Bárbola y Nicolasito Pertusato, que azuza a un mastín, a la dama de honor doña Marcela de Ulloa, junto a un guardadamas, y, al fondo, tras la puerta, asoma José Nieto, aposentador. En el espejo se ven reflejados los rostros de Felipe IV y Mariana de Austria, padres de la infanta y testigos de la escena. Los personajes habitan un espacio modelado no sólo mediante las leyes de la perspectiva científica sino también de la perspectiva aérea, en cuya definición representa un papel importante la multiplicación de las fuentes de luz.
+
+Las meninas tiene un significado inmediato accesible a cualquier espectador. Es un retrato de grupo realizado en un espacio concreto y protagonizado por personajes identificables que llevan a cabo acciones comprensibles. Sus valores estéticos son también evidentes: su escenario es uno de los espacios más creíbles que nos ha dejado la pintura occidental; su composición aúna la unidad con la variedad; los detalles de extraordinaria belleza se reparten por toda la superficie pictórica; y el pintor ha dado un paso decisivo en el camino hacia el ilusionismo, que fue una de las metas de la pintura europea de la Edad Moderna, pues ha ido más allá de la transmisión del parecido y ha buscado con éxito la representación de la vida o la animación. Pero, como es habitual en Velázquez, en esta escena en la que la infanta y los servidores interrumpen lo que hacen ante la aparición de los reyes, subyacen numerosos significados, que pertenecen a campos de la experiencia diferentes y que la convierten en una de las obras maestras de la pintura occidental que ha sido objeto de una mayor cantidad y variedad de interpretaciones. Existe, por ejemplo, una reflexión sobre la identidad regia de la infanta, lo que, por extensión llena el cuadro de contenido político. Pero también hay varias referencias importantes de carácter histórico-artístico, que se encarnan en el propio pintor o en los cuadros que cuelgan de la pared del fondo; y la presencia del espejo convierte el cuadro en una reflexión sobre el acto de ver y hace que el espectador se pregunte sobre las leyes de la representación, sobre los límites entre pintura y realidad y sobre su propio papel dentro del cuadro.
+
+Esa riqueza y variedad de contenidos, así como la complejidad de su composición y la variedad de las acciones que representa, hacen que Las meninas sea un retrato en el que su autor utiliza estrategias de representación y persigue unos objetivos que desbordan los habituales en ese género y lo acercan a la pintura de historia. En ese sentido, constituye uno de los lugares principales a través de los cuales Velázquez reivindicó las posibilidades del principal género pictórico al que se había dedicado desde que se estableció en la corte en 1623."
+```
+
+The function `prepare_descriptors()` will apply the procedure indicated previously.
+
+```{r}
+test <- prepare_descriptors(mi_texto, input_type = "string", input_format = "text",
+                    include_ngrams = TRUE,
+                    lemmatize = "both", udpipe_model = ud_model,
+                    remove_stopwords = TRUE, stopwords_lang = "es",
+                    max_ngrams = 300)
+test
+```
+
+Next we test the global coverage of the artwork in the dictionary.
+
+```{r}
+test_cov <- dict_coverage(test, prefix = "descriptor_")
+test_cov$cov_pct_global
+```
+
+Next, we test the coverage per dimension
+
+```{r}
+test_cov_dims <- dict_dim_coverage_all(test, prefix = "descriptor_")
+```
+
+```{r}
+cov_cols <- grep("^cov_", names(test_cov_dims), value = TRUE)
+
+m <- colMeans(test_cov_dims[, cov_cols, drop = FALSE], na.rm = TRUE)
+
+means_cov <- data.frame(
+  variable = names(m),
+  mean_coverage = as.numeric(m),
+  row.names = NULL
+)
+
+means_cov <- means_cov[order(means_cov$mean_coverage, decreasing = TRUE), ]
+means_cov
+```
+
+Finally, we calculate the directions in the different dimensions of SADCAT and obtain descriptive analysis.
+
+```{r}
+test_con_dirmean <- dict_dim_dirmean_all(test_cov_dims, prefix = "descriptor_")
+```
+
+```{r}
+cov_cols     <- grep("^cov_",     names(test_con_dirmean), value = TRUE)
+dirmean_cols <- grep("^dirmean_", names(test_con_dirmean), value = TRUE)
+n_cols       <- grep("^n_dirmean_", names(test_con_dirmean), value = TRUE)
+```
+
+```{r}
+summary_block <- function(df, cols) {
+  x <- df[, cols, drop = FALSE]
+  out <- data.frame(
+    variable = cols,
+    n = sapply(x, function(z) sum(!is.na(z))),
+    na = sapply(x, function(z) sum(is.na(z))),
+    mean = sapply(x, function(z) mean(z, na.rm = TRUE)),
+    sd = sapply(x, function(z) sd(z, na.rm = TRUE)),
+    min = sapply(x, function(z) min(z, na.rm = TRUE)),
+    q25 = sapply(x, function(z) quantile(z, 0.25, na.rm = TRUE, names = FALSE)),
+    median = sapply(x, function(z) median(z, na.rm = TRUE)),
+    q75 = sapply(x, function(z) quantile(z, 0.75, na.rm = TRUE, names = FALSE)),
+    max = sapply(x, function(z) max(z, na.rm = TRUE)),
+    row.names = NULL
+  )
+  out
+}
+
+cov_summary     <- summary_block(test_con_dirmean, cov_cols)
+dirmean_summary <- summary_block(test_con_dirmean, dirmean_cols)
+n_summary       <- summary_block(test_con_dirmean, n_cols)
+
+cov_summary[order(cov_summary$mean, decreasing = TRUE), ]
+dirmean_summary[order(abs(dirmean_summary$mean), decreasing = TRUE), ] 
+n_summary[order(n_summary$mean, decreasing = TRUE), ]
+```
+
+
