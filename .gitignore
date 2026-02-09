@@ -4,3 +4,11 @@
 .Ruserdata
 .Renviron
 *.udpipe
+app/rsconnect/
+dev/
+inst/doc
+/doc/
+/Meta/
+.httr-oauth
+.DS_Store
+.quarto

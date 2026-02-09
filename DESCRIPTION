@@ -1,0 +1,23 @@
+Package: AGRUPA
+Title: AGRUPA internal tooling
+Version: 0.0.0.9000
+Authors@R: 
+    person("AGRUPA Team", , , "a.martinez.m90@gmail.com", role = c("aut", "cre"))
+Description: Helper functions to compute SADCAT-based stereotype metrics
+    for artwork descriptions.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports: 
+    dplyr,
+    SADCAT,
+    stopwords,
+    stringi,
+    tibble,
+    tidyr,
+    udpipe
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr

@@ -1,11 +1,5 @@
 # app.R
-# AGRUPA · Cordialidad–Competencia (pipeline propio + descripciones ES)
-# Sin ggiraph/plotly: hipervínculos por (a) clic/hover sobre puntos, (b) icono en selector, (c) enlace en tabla.
-# Cambios clave:
-#  - Cálculo bajo demanda con botón "Calcular"
-#  - Ejes X/Y seleccionables entre todas las columnas dirmean_*
-#  - Guards para evitar error de "nombre de variable de longitud cero" cuando x_dim/y_dim están vacíos
-
+# AGRUPA 
 
 suppressPackageStartupMessages({
   library(shiny)
@@ -42,7 +36,8 @@ if (length(missing_fun) > 0) {
 # ==========  MODELO UDPipe (ES)  =============================
 # ============================================================
 if (!exists("ud_model")) {
-  model_path <- Sys.getenv("UDPIPE_ES_MODEL", unset = NA_character_)
+  initial_path <- here::here()
+  model_path <- paste0(initial_path, "/spanish-ancora-ud-2.5-191206.udpipe")
   if (!is.na(model_path) && nzchar(model_path) && file.exists(model_path)) {
     ud_model <- udpipe::udpipe_load_model(model_path)
   } else {
@@ -228,7 +223,7 @@ choice_values <- unname(artworks_all$id)
 
 # ---- UI ----
 ui <- fluidPage(
-  titlePanel("AGRUPA · Prototipo Cordialidad–Competencia (ES · pipeline propio)"),
+  titlePanel("AGRUPA · Prototipo"),
   tags$style(HTML("
     #scatter { cursor: crosshair; }
     .link-icon { margin-left: 6px; text-decoration: none; }

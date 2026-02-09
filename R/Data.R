@@ -3,26 +3,34 @@
 ##################################################
 
 ###############################################
-# 0) Paquetes
+# 0) Paquetes (NO usar library() en scripts de paquete)
 ###############################################
-# Installing dependencies:
+# Installing dependencies (esto mejor en README/vignette, no en R/):
 # install.packages("remotes")
-# remotes::install_github("gandalfnicolas/SADCAT", dependencies = T)
-library(SADCAT)
-library(dplyr)
-library(stringr)
-library(stringi)
-library(stringdist)
-library(tidyr)
-library(tibble)
-library(readr)
+# remotes::install_github("gandalfnicolas/SADCAT", dependencies = TRUE)
+
+# En este script NO se cargan paquetes con library().
+# Se usan llamadas explícitas tipo pkg::func() y checks con requireNamespace()
+# para dependencias opcionales según parámetros.
 
 ###############################################
 # 1) Cargar diccionario español desde SADCAT
 ###############################################
-# load_dic_spanish() carga en el entorno el diccionario completo
-# en español desde la librería SADCAT.
 
+#' Load SADCAT dictionaries
+#'
+#' Convenience wrapper around objects shipped with the **SADCAT** package.
+#'
+#' @param language Character. `"es"` returns the Spanish dictionary (`SADCAT::Spanishdicts`).
+#'   Any other value returns `SADCAT::All.steps_Dictionaries` (legacy / non-Spanish set).
+#'
+#' @return A data frame containing SADCAT lexical entries and associated variables.
+#'
+#' @examples
+#' dic_es <- load_dic("es")
+#' head(dic_es)
+#'
+#' @export
 load_dic <- function(language = "en"){
   if(language == "es"){
     return(SADCAT::Spanishdicts)
@@ -36,11 +44,45 @@ load_dic <- function(language = "en"){
 # 2) Procesado de los datos
 ###############################################
 
-# split_descriptors() es una función que toma bien un string único, un
-# vector, o un dataset, y divide y limpia los descriptores asumiendo
-# que estos vienen separados por comas. Para adaptarnos al diccionario
-# de SADCAT se eliminan las mayúsculas, tíldes, y ñ.
-
+#' Split and normalize comma-separated descriptors (legacy helper)
+#'
+#' This function takes a comma-separated descriptor field and converts it into a **wide** data frame
+#' with columns `descriptor_1`, `descriptor_2`, ... suitable for dictionary lookup.
+#'
+#' It performs the AGRUPA/SADCAT normalization steps:
+#' - trimming,
+#' - lowercasing,
+#' - removal of *all* whitespace,
+#' - optional diacritic stripping (accent removal),
+#' - optional UDPipe lemmatization (`lemmatize = "lemma"` or `"both"`).
+#'
+#' @details
+#' This function is kept for backwards compatibility. For new code, prefer
+#' [prepare_descriptors()] which supports both comma-separated descriptors and narrative text
+#' (unigrams and n-grams).
+#'
+#' When `lemmatize = "both"`, lemma-based candidates are returned in additional columns with
+#' suffix `lemma_suffix`, but only when the lemma adds new information (lemmas identical to
+#' the normalized surface form are set to `NA` to avoid double counting).
+#'
+#' @param x Input descriptors. See `input_type`.
+#' @param input_type `"string"`, `"vector"`, or `"data"`. Controls how `x` is interpreted.
+#' @param desc_col For `input_type = "data"`, the name of the column in `x` that contains the
+#'   comma-separated descriptors.
+#' @param prefix Prefix for generated descriptor columns (default `"descriptor_"`).
+#' @param drop_desc_col Logical. For `input_type = "data"`, drop `desc_col` from the output.
+#' @param remove_diacritics Logical. If `TRUE`, remove accents and diacritics using **stringi**.
+#' @param keep_enye Logical. If `TRUE`, preserve `"ñ"` when removing other diacritics.
+#' @param lemmatize `"none"`, `"lemma"`, or `"both"`.
+#' @param udpipe_model An `udpipe_model` object or a path to a `.udpipe` file (required if lemmatizing).
+#' @param lemma_suffix Suffix for lemma columns when `lemmatize = "both"` (default `"_lemma"`).
+#'
+#' @return A data frame with one row per input row and descriptor columns in wide format.
+#'
+#' @examples
+#' split_descriptors("elegante, solemne", input_type = "string")
+#'
+#' @export
 split_descriptors <- function(x,
                               input_type = c("string", "vector", "data"),
                               desc_col = NULL,
@@ -205,9 +247,8 @@ split_descriptors <- function(x,
     same <- !is.na(mat_norm) & !is.na(mat_lem) & (mat_norm == mat_lem)
     mat_lem[same] <- NA_character_
     
-    # 3) Deduplicación dentro de cada fila del bloque lemma (evita "doble peso" por convergencia al mismo lema)
+    # 3) Deduplicación dentro de cada fila del bloque lemma
     mat_lem <- t(apply(mat_lem, 1, function(row) {
-      # conserva orden; repite -> NA
       seen <- character(0)
       out  <- row
       for (k in seq_along(out)) {
@@ -261,7 +302,22 @@ split_descriptors <- function(x,
   if (max(v) <= 1) thr_pct / 100 else thr_pct
 }
 
-# Filtra df por una columna de coverage con umbral en porcentaje (thr_pct)
+#' Filter rows by a coverage threshold (percentage)
+#'
+#' Filters a data frame by a coverage column using a threshold expressed as a percentage.
+#' The function automatically adapts to coverage columns expressed on a `0-100` or `0-1` scale.
+#'
+#' @param df A data frame.
+#' @param coverage_col Character. Name of the coverage column in `df`.
+#' @param thr_pct Numeric. Threshold in percent (e.g., `30` means 30%).
+#'
+#' @return A filtered data frame (same columns, fewer rows).
+#'
+#' @examples
+#' df <- data.frame(id = 1:3, cov = c(10, 50, 90))
+#' filter_by_coverage(df, "cov", 30)
+#'
+#' @export
 filter_by_coverage <- function(df, coverage_col, thr_pct) {
   stopifnot(is.data.frame(df), coverage_col %in% names(df))
   thr <- .coverage_threshold(df[[coverage_col]], thr_pct)
@@ -354,12 +410,10 @@ sd_udpipe_annotate_text <- function(text_vec, udpipe_model) {
 
 ###############################################
 # C) Tokenización simple (sin udpipe) para n-gramas
-#    - Importante: NO cruzar puntuación => segmentamos por signos
 ###############################################
 
 sd_segments_regex <- function(text) {
   if (is.na(text) || !nzchar(text)) return(character(0))
-  # Segmenta en “trozos” por puntuación fuerte y comas/puntos y saltos de línea
   segs <- unlist(strsplit(text, "[\\.!\\?;:,\\n\\r]+", perl = TRUE))
   segs <- trimws(segs)
   segs[nzchar(segs)]
@@ -368,7 +422,6 @@ sd_segments_regex <- function(text) {
 sd_tokens_from_segment <- function(segment, keep_numbers = FALSE) {
   if (!nzchar(segment)) return(character(0))
   
-  # Extrae tokens “palabra”: letras (Unicode) + opcionalmente números
   if (keep_numbers) {
     pattern <- "[\\p{L}\\p{N}]+"
   } else {
@@ -427,7 +480,6 @@ sd_text_ngrams_df <- function(text_vec,
       trigrams <- c(trigrams, sd_generate_ngrams(toks, n = 3L))
     }
     
-    # normaliza estilo SADCAT (quita espacios => pega términos del n-grama)
     bigrams <- sd_finalize_norm(bigrams, remove_diacritics = remove_diacritics, keep_enye = keep_enye)
     trigrams <- sd_finalize_norm(trigrams, remove_diacritics = remove_diacritics, keep_enye = keep_enye)
     
@@ -453,7 +505,7 @@ sd_text_ngrams_df <- function(text_vec,
 }
 
 ###############################################
-# E) Texto narrativo: unigramas (descriptores) + lemas opcionales
+# E) Texto narrativo: unigramas + lemas opcionales
 ###############################################
 
 sd_text_unigrams_df <- function(text_vec,
@@ -476,7 +528,6 @@ sd_text_unigrams_df <- function(text_vec,
     sw <- sd_get_stopwords(stopwords_lang, stopwords_custom = stopwords_custom)
   }
   
-  # Si hay lematización, anotamos el texto completo (mejor que token-a-token)
   anno <- NULL
   if (lemmatize %in% c("lemma", "both")) {
     anno <- sd_udpipe_annotate_text(text_vec, udpipe_model)
@@ -494,26 +545,21 @@ sd_text_unigrams_df <- function(text_vec,
     }
     
     if (is.null(anno)) {
-      # Camino sin udpipe: tokenización simple (toda la cadena, ignorando puntuación)
       segs <- sd_segments_regex(txt)
       toks <- unlist(lapply(segs, sd_tokens_from_segment, keep_numbers = FALSE), use.names = FALSE)
       toks <- toks[!is.na(toks) & nzchar(toks)]
       
       if (remove_stopwords) toks <- toks[!(toks %in% sw)]
       
-      # normaliza SADCAT
       norm <- sd_finalize_norm(toks, remove_diacritics = remove_diacritics, keep_enye = keep_enye)
       
       if (dedupe_within_row) norm <- norm[!duplicated(norm)]
       norm_list[[i]] <- norm
       
     } else {
-      # Camino udpipe: confirmamos doc_id y usamos token+lemma con contexto
       doc_id <- paste0("doc", i)
       dfi <- anno[anno$doc_id == doc_id, , drop = FALSE]
       
-      # Nos quedamos solo con “tokens palabra” (evita PUNCT, etc.)
-      # Nota: en udpipe, token puede incluir puntuación; filtramos por presencia de letras
       is_word <- grepl("\\p{L}", dfi$token, perl = TRUE)
       dfi <- dfi[is_word, , drop = FALSE]
       
@@ -534,7 +580,6 @@ sd_text_unigrams_df <- function(text_vec,
       
       if (dedupe_within_row) {
         norm <- norm[!duplicated(norm)]
-        # Para lemas, también dedupe; pero ojo: lo haremos mejor en "both" comparando contra norm
         lem2 <- lem2[!duplicated(lem2)]
       }
       
@@ -545,7 +590,6 @@ sd_text_unigrams_df <- function(text_vec,
   
   df_text <- data.frame(setNames(list(text_vec), text_col), stringsAsFactors = FALSE)
   
-  # Salida según modo
   if (lemmatize == "none") {
     df_norm <- sd_make_wide(norm_list, "descriptor_")
     return(cbind(df_text, df_norm))
@@ -556,7 +600,6 @@ sd_text_unigrams_df <- function(text_vec,
     return(cbind(df_text, df_lem))
   }
   
-  # both: norm + lemma SOLO si aporta info nueva (sin duplicar peso)
   max_len_out <- max(max(lengths(norm_list), 0L), max(lengths(lemma_list), 0L), 0L)
   if (max_len_out == 0L) return(df_text)
   
@@ -571,7 +614,6 @@ sd_text_unigrams_df <- function(text_vec,
   same <- !is.na(mat_norm) & !is.na(mat_lem) & (mat_norm == mat_lem)
   mat_lem[same] <- NA_character_
   
-  # dedupe dentro del bloque lemma por fila (por si convergen varias formas al mismo lema)
   mat_lem <- t(apply(mat_lem, 1, function(row) {
     seen <- character(0)
     out <- row
@@ -593,8 +635,7 @@ sd_text_unigrams_df <- function(text_vec,
 }
 
 ###############################################
-# F) Caso original: lista separada por comas (tu split_descriptors)
-#    - lo conservo como función auxiliar interna del wrapper final
+# F) Caso original: lista separada por comas
 ###############################################
 
 sd_comma_descriptors_df <- function(v,
@@ -624,9 +665,7 @@ sd_comma_descriptors_df <- function(v,
     return(df)
   }
   
-  # Lematización en bloque: aquí el contexto importa menos (suelen ser descriptores aislados)
   if (lemmatize %in% c("lemma", "both")) {
-    # lematizamos cada descriptor como “mini-doc”
     if (!requireNamespace("udpipe", quietly = TRUE)) {
       stop("Instala 'udpipe' para lematizar: install.packages('udpipe').")
     }
@@ -646,13 +685,11 @@ sd_comma_descriptors_df <- function(v,
       anno <- udpipe::udpipe_annotate(udpipe_model, x = flat, doc_id = doc_ids)
       dfanno <- as.data.frame(anno)
       
-      # lemma fallback
       lem <- dfanno$lemma
       bad <- is.na(lem) | !nzchar(lem)
       lem[bad] <- dfanno$token[bad]
       lem <- tolower(lem)
       
-      # cada “doc” aquí es un token, así que reconstrucción es directa
       flat_lem <- lem
       
       idx <- rep.int(seq_along(parts_list), lens)
@@ -673,7 +710,6 @@ sd_comma_descriptors_df <- function(v,
     return(df)
   }
   
-  # both: norm + lemma solo si aporta info nueva
   max_len_out <- max(max(lengths(norm_list), 0L), max(lengths(lemma_list), 0L), 0L)
   if (max_len_out == 0L) return(as.data.frame(matrix(nrow = length(v), ncol = 0)))
   
@@ -712,6 +748,62 @@ sd_comma_descriptors_df <- function(v,
 # G) Función final de uso: unifica "comma" vs "text"
 ###############################################
 
+#' Prepare candidate descriptors for SADCAT lookup
+#'
+#' High-level wrapper that extracts and normalizes candidate descriptors either from:
+#' - comma-separated descriptor strings (`input_format = "comma"`), or
+#' - narrative text (`input_format = "text"`) as unigrams plus optional bigrams/trigrams.
+#'
+#' The output is always a **wide** data frame with columns starting with `prefix` (by default
+#' `descriptor_`), ready to be consumed by `dict_coverage()`, `dict_dim_coverage_all()`,
+#' and `dict_dim_dirmean_all()`.
+#'
+#' @section Normalization:
+#' The pipeline mirrors the format used by the AGRUPA/SADCAT lookup tables:
+#' - lowercase,
+#' - remove *all* whitespace (including internal spaces),
+#' - optionally strip diacritics (accent removal),
+#' - optionally keep `"ñ"` untouched.
+#'
+#' @section Lemmatization:
+#' If `lemmatize` is `"lemma"` or `"both"`, UDPipe is used. For narrative text, lemmatization
+#' is run on the full document to preserve context (UDPipe annotation), then tokens/lemmas are
+#' normalized. With `lemmatize = "both"`, lemma columns are included only when they add
+#' information (lemmas identical to surface forms are set to `NA`) and deduplicated within-row.
+#'
+#' @section N-grams:
+#' For `input_format = "text"`, bigrams and trigrams are generated *within punctuation-delimited segments*,
+#' preventing n-grams from crossing punctuation boundaries. N-grams are normalized by removing whitespace,
+#' so `"alta calidad"` becomes `"altacalidad"`.
+#'
+#' @param x Input object (string, vector, or data frame). See `input_type`.
+#' @param input_type `"string"`, `"vector"`, or `"data"`.
+#' @param input_format `"comma"` or `"text"`.
+#' @param desc_col For `input_type = "data"`, the name of the column containing descriptors/text.
+#' @param prefix Prefix for descriptor columns (default `"descriptor_"`).
+#' @param drop_desc_col Logical. For `input_type = "data"`, drop `desc_col` from the output.
+#' @param remove_diacritics Logical. Remove diacritics using **stringi**.
+#' @param keep_enye Logical. Preserve `"ñ"` when stripping other diacritics.
+#' @param lemmatize `"none"`, `"lemma"`, or `"both"`.
+#' @param udpipe_model An `udpipe_model` object or a path to a `.udpipe` file (required if lemmatizing).
+#' @param lemma_suffix Suffix for lemma columns when `lemmatize = "both"` (default `"_lemma"`).
+#' @param include_ngrams Logical. For `input_format = "text"`, include bigrams and trigrams.
+#' @param remove_stopwords Logical. For `input_format = "text"`, remove stopwords for unigrams.
+#' @param stopwords_lang `"es"` or `"en"`. Language used for stopword lists (stopwords-iso).
+#' @param stopwords_custom Optional character vector of custom stopwords.
+#' @param max_ngrams Maximum number of bigrams and trigrams per row (default `Inf`).
+#' @param text_col Name of the column that holds the original text in the output (default `"text"`).
+#'
+#' @return A data frame with one row per input row. Descriptor columns are in wide format.
+#'
+#' @examples
+#' # Comma-separated descriptors:
+#' prepare_descriptors("elegante, solemne", input_type = "string", input_format = "comma")
+#'
+#' # Narrative text:
+#' prepare_descriptors("Una obra magistral y compleja.", input_type = "string", input_format = "text")
+#'
+#' @export
 prepare_descriptors <- function(x,
                                 input_type = c("string", "vector", "data"),
                                 input_format = c("comma", "text"),

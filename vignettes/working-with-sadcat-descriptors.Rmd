@@ -1,0 +1,212 @@
+---
+title: "Working with SADCAT descriptors in AGRUPA"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Working with SADCAT descriptors in AGRUPA}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+## Overview
+
+This vignette documents the helper functions defined in **Data.R** and **Dictionary.R** used in the AGRUPA project to:
+
+1. Extract candidate descriptors from Spanish text (either *comma-separated* descriptors or *narrative* text).
+2. Normalize them to match SADCAT's lookup format (lowercase, whitespace removal, optional diacritic removal).
+3. Compute global and dimension-level **coverage** against SADCAT, and compute **mean direction** scores for each dimension/facet.
+
+The pipeline is designed around the **Stereotype Content Model (SCM)** dimensions (warmth and competence) plus additional facets provided by SADCAT.
+
+> **Important:** normalization in this project removes *all whitespace* (e.g., `"alta calidad"` → `"altacalidad"`). This matches the format expected by the SADCAT dictionaries used here. Always verify this assumption by inspecting `SADCAT::Spanishdicts$Palabra`.
+
+## Dependencies
+
+The functions rely on:
+
+- `SADCAT` (dictionary)
+- `stopwords` (optional stopword removal)
+- `udpipe` (optional lemmatization)
+- `stringi` (optional diacritic stripping)
+
+```{r deps}
+# install.packages("remotes")
+# remotes::install_github("gandalfnicolas/SADCAT", dependencies = TRUE)
+# install.packages(c("udpipe", "stopwords", "stringi", "dplyr"))
+
+library(SADCAT)
+# Load the package being documented
+library(AGRUPA)
+```
+
+## Loading the dictionary
+
+```{r dict}
+# Spanish dictionary shipped with SADCAT
+spanish_dict <- SADCAT::Spanishdicts
+names(spanish_dict)[1:10]
+```
+
+## 1) Preparing descriptors
+
+### 1.1 Comma-separated descriptors
+
+Use `prepare_descriptors(..., input_format = "comma")` when your input is a string such as:
+`"elegante, solemne, aristocrático"`.
+
+```{r comma}
+# Source descriptors as a vector of comma-separated strings (one per row)
+v <- c(
+  "elegante, solemne, aristocrático",
+  "barroco, realista"
+)
+
+df_desc <- prepare_descriptors(
+  x = v,
+  input_type = "vector",
+  input_format = "comma",
+  remove_diacritics = TRUE,
+  keep_enye = FALSE
+)
+
+df_desc
+```
+
+#### Optional: lemmatization for comma descriptors
+
+If you want to add lemma-based candidates, set `lemmatize = "lemma"` or `lemmatize = "both"` and pass an UDPipe model.
+
+```{r comma-lemma, eval=FALSE}
+library(udpipe)
+
+m <- udpipe_download_model(language = "spanish-ancora", overwrite = FALSE)
+ud_model <- udpipe_load_model(m$file_model)
+
+df_desc_lem <- prepare_descriptors(
+  x = v,
+  input_type = "vector",
+  input_format = "comma",
+  lemmatize = "both",
+  udpipe_model = ud_model
+)
+```
+
+### 1.2 Narrative text (unigrams + optional bi/tri-grams)
+
+Use `prepare_descriptors(..., input_format = "text")` when your input is running text
+(e.g., a museum catalogue description).
+
+By default, the function extracts:
+- **unigrams** (optionally removing stopwords), and
+- **bigrams + trigrams** (without stopword removal; segmentation prevents crossing punctuation).
+
+```{r text}
+text_vec <- c(
+  "Las Meninas es una obra compleja y magistral. Representa a la infanta y su séquito.",
+  "Un retrato sobrio y ceremonial, con gran riqueza compositiva."
+)
+
+df_text_desc <- prepare_descriptors(
+  x = text_vec,
+  input_type = "vector",
+  input_format = "text",
+  include_ngrams = TRUE,
+  remove_stopwords = TRUE,
+  stopwords_lang = "es",
+  remove_diacritics = TRUE,
+  keep_enye = FALSE
+)
+
+df_text_desc[1, 1:12]
+```
+
+#### Optional: lemmatization for narrative text
+
+For narrative text, lemmatization is done **with context** via `udpipe_annotate` on the whole document.
+This typically improves lemma quality compared to lemmatizing tokens in isolation.
+
+```{r text-lemma, eval=FALSE}
+library(udpipe)
+
+m <- udpipe_download_model(language = "spanish-ancora")
+ud_model <- udpipe_load_model(m$file_model)
+
+df_text_desc_lem <- prepare_descriptors(
+  x = text_vec,
+  input_type = "vector",
+  input_format = "text",
+  include_ngrams = TRUE,
+  remove_stopwords = TRUE,
+  stopwords_lang = "es",
+  lemmatize = "both",
+  udpipe_model = ud_model
+)
+```
+
+## 2) Coverage against SADCAT
+
+Once you have a data frame with columns starting with `descriptor_`, you can compute coverage.
+
+### 2.1 Global coverage
+
+```{r cov-global}
+cov_global <- dict_coverage(df_text_desc, dict = SADCAT::Spanishdicts$Palabra, prefix = "descriptor_")
+cov_global[, c("cov_pct_global", "n_descriptores_fila", "n_en_diccionario_fila")]
+```
+
+### 2.2 Coverage by dimension/facet
+
+SADCAT encodes membership in dimensions/facets using columns ending in `_dict`. The helper
+`dict_dim_coverage_all()` computes the percentage of your candidate descriptors that fall into each of those columns.
+
+```{r cov-dim}
+cov_dim <- dict_dim_coverage_all(df_text_desc, dict_df = SADCAT::Spanishdicts, prefix = "descriptor_")
+
+# Show only the new coverage columns:
+cov_cols <- grep("^cov_.*_pct$", names(cov_dim), value = TRUE)
+cov_dim[1, cov_cols[1:min(8, length(cov_cols))]]
+```
+
+## 3) Mean direction scores
+
+SADCAT also provides direction scores in columns ending in `_dir`. The helper
+`dict_dim_dirmean_all()` computes the **mean direction** per row (based only on in-vocabulary descriptors with non-missing direction scores),
+and also returns the number of contributing descriptors for each mean.
+
+```{r dirmean}
+dirmean <- dict_dim_dirmean_all(df_text_desc, dict_df = SADCAT::Spanishdicts, prefix = "descriptor_")
+
+dir_cols <- grep("^dirmean_", names(dirmean), value = TRUE)
+n_cols   <- grep("^n_dirmean_", names(dirmean), value = TRUE)
+
+dirmean[1, c(dir_cols[1:min(6, length(dir_cols))], n_cols[1:min(6, length(n_cols))])]
+```
+
+## 4) Filtering by coverage
+
+A simple helper is provided to filter rows using a coverage column and a threshold expressed as a percentage.
+
+```{r filter}
+# Keep only rows with at least 30% global coverage:
+subset_30 <- filter_by_coverage(cov_global, "cov_pct_global", thr_pct = 30)
+subset_30
+```
+
+## Notes on interpretation
+
+- **Coverage** is a property of *your candidate descriptor set* and SADCAT's lexical coverage.
+  A low coverage score does *not* necessarily imply weak stereotype content in the text; it can also reflect
+  lexical mismatch (e.g., named entities, rare words, or domain-specific vocabulary).
+- **Direction means** are computed only from descriptors that have non-missing direction values in the dictionary.
+  Always inspect the accompanying `n_dirmean_*` columns.
+
+
+

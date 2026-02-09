@@ -1,0 +1,13 @@
+^LICENSE\.md$
+^\\.Rproj$$
+^\\.Rproj\\.user$$
+^^app$$
+^^notebooks$$
+^\.*\\.udpipe$$
+^\.*\\.html$$
+^^models$$
+^^data_raw$$
+^^dev$$
+^\.Rproj\.user$
+^doc$
+^Meta$

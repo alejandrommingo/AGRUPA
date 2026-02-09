@@ -3,24 +3,45 @@
 ##################################################
 
 ###############################################
-# 0) Paquetes
+# 0) Paquetes (NO usar library() en scripts de paquete)
 ###############################################
-# Installing dependencies:
+# Installing dependencies (esto mejor en README/vignette, no en R/):
 # install.packages("remotes")
-# remotes::install_github("gandalfnicolas/SADCAT", dependencies = T)
-library(SADCAT)
-library(dplyr)
-library(stringr)
-library(stringi)
-library(stringdist)
-library(tidyr)
-library(tibble)
-library(readr)
+# remotes::install_github("gandalfnicolas/SADCAT", dependencies = TRUE)
+#
+# En este script NO se cargan paquetes con library().
+# Se accede a los objetos de SADCAT vía SADCAT::...
 
 ##################################################
 # 1) Cálculo del Coverage global en el diccionario
 ##################################################
 
+#' Compute global dictionary coverage
+#'
+#' Computes per-row coverage of candidate descriptors against a reference dictionary.
+#' Coverage is defined as:
+#'
+#' \deqn{\mathrm{coverage} = \frac{n_{\mathrm{in\_dict}}}{n_{\mathrm{total}}}\times 100}
+#'
+#' where `n_total` counts non-missing, non-empty descriptor cells and `n_in_dict` counts
+#' descriptors found in the dictionary.
+#'
+#' @param df A data frame containing descriptor columns.
+#' @param dict Character vector of valid dictionary entries (defaults to `SADCAT::Spanishdicts$Palabra`).
+#' @param prefix Prefix used to identify descriptor columns (default `"descriptor_"`).
+#' @param out_pct Name of the output column with coverage percentage.
+#' @param out_total Name of the output column with number of candidate descriptors.
+#' @param out_in_dict Name of the output column with number of in-dictionary descriptors.
+#'
+#' @return `df` with three additional columns: total descriptors, in-dictionary descriptors,
+#'   and coverage percentage.
+#'
+#' @examples
+#' df <- data.frame(descriptor_1 = c("elegante", "foo"),
+#'                  descriptor_2 = c("solemne", NA))
+#' dict_coverage(df, dict = c("elegante", "solemne"))
+#'
+#' @export
 dict_coverage <- function(df,
                           dict = SADCAT::Spanishdicts$Palabra,
                           prefix = "descriptor_",
@@ -68,6 +89,32 @@ dict_coverage <- function(df,
 # 2) Cálculo del Coverage por dimensión y faceta
 ##################################################
 
+#' Compute coverage for all SADCAT dimensions/facets
+#'
+#' Computes per-row coverage for each dictionary membership column ending in `"_dict"` (or a user-specified
+#' subset via `dict_vars`). For each variable, the function reports the percentage of candidate descriptors
+#' (non-missing and non-empty cells) that map to that variable.
+#'
+#' @param df A data frame containing descriptor columns.
+#' @param dict_df The SADCAT dictionary data frame (default `SADCAT::Spanishdicts`).
+#' @param palabra_col Name of the token column in `dict_df` (default `"Palabra"`).
+#' @param prefix Prefix used to identify descriptor columns in `df` (default `"descriptor_"`).
+#' @param dict_vars Optional subset of `*_dict` columns to use. If `NULL`, all `*_dict` columns are used.
+#' @param out_prefix Prefix for new coverage columns (default `"cov_"`).
+#' @param out_suffix Suffix for new coverage columns (default `"_pct"`).
+#'
+#' @return `df` with additional coverage columns (one per `*_dict` variable). Each value is a percentage.
+#'
+#' @examples
+#' # Minimal example with a toy "dictionary" data frame
+#' dict_df <- data.frame(Palabra = c("elegante", "solemne"),
+#'                       warmth_dict = c(1L, 0L),
+#'                       competence_dict = c(0L, 1L))
+#' df <- data.frame(descriptor_1 = c("elegante", "solemne"),
+#'                  descriptor_2 = c("solemne", NA))
+#' dict_dim_coverage_all(df, dict_df = dict_df)
+#'
+#' @export
 dict_dim_coverage_all <- function(df,
                                   dict_df = SADCAT::Spanishdicts,
                                   palabra_col = "Palabra",
@@ -144,6 +191,36 @@ dict_dim_coverage_all <- function(df,
 # 3) Cálculo de puntuación media por dimensión y faceta
 #######################################################
 
+#' Compute mean direction scores for all SADCAT dimensions/facets
+#'
+#' For each `*_dir` variable (or a user-specified subset via `dir_vars`), this function computes:
+#' - the mean direction score per row (based only on descriptors with non-missing direction values), and
+#' - the number of contributing descriptors used for that mean (`n_dirmean_*`).
+#'
+#' Duplicate entries in the dictionary are aggregated by token using a mean (ignoring missing values).
+#'
+#' @param df A data frame containing descriptor columns.
+#' @param dict_df The SADCAT dictionary data frame (default `SADCAT::Spanishdicts`).
+#' @param palabra_col Name of the token column in `dict_df` (default `"Palabra"`).
+#' @param prefix Prefix used to identify descriptor columns in `df` (default `"descriptor_"`).
+#' @param dir_vars Optional subset of `*_dir` columns to use. If `NULL`, all `*_dir` columns are used.
+#' @param out_prefix Prefix for mean direction columns (default `"dirmean_"`).
+#' @param out_suffix Suffix for mean direction columns (default `""`).
+#' @param n_prefix Prefix for count columns (default `"n_dirmean_"`).
+#' @param strip_dir_suffix Logical. If `TRUE`, drop the `_dir` suffix in output names.
+#'
+#' @return `df` with additional mean direction and count columns.
+#'
+#' @examples
+#' # Minimal example with a toy "dictionary" data frame
+#' dict_df <- data.frame(Palabra = c("elegante", "solemne", "solemne"),
+#'                       warmth_dir = c( 1, NA,  3),
+#'                       competence_dir = c(0,  2, NA))
+#' df <- data.frame(descriptor_1 = c("elegante", "solemne"),
+#'                  descriptor_2 = c("solemne", NA))
+#' dict_dim_dirmean_all(df, dict_df = dict_df)
+#'
+#' @export
 dict_dim_dirmean_all <- function(df,
                                  dict_df = SADCAT::Spanishdicts,
                                  palabra_col = "Palabra",
@@ -233,5 +310,3 @@ dict_dim_dirmean_all <- function(df,
   
   out
 }
-
-
