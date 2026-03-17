@@ -134,7 +134,7 @@ dict_dim_coverage_all <- function(df,
   
   # 2) variables *_dict a usar (por defecto: TODAS las que terminen en _dict)
   if (is.null(dict_vars)) {
-    dict_vars <- grep("_dict$", names(dict_df), value = TRUE)
+    dict_vars <- grep("_dict", names(dict_df), value = TRUE)
     if (length(dict_vars) == 0L) stop("No se encontraron columnas que terminen en '_dict' en dict_df.")
   } else {
     if (!is.character(dict_vars)) stop("dict_vars debe ser un vector character.")
@@ -242,7 +242,7 @@ dict_dim_dirmean_all <- function(df,
   
   # 2) variables *_dir a usar (por defecto: TODAS las que terminen en _dir)
   if (is.null(dir_vars)) {
-    dir_vars <- grep("_dir$", names(dict_df), value = TRUE)
+    dir_vars <- grep("_dir", names(dict_df), value = TRUE)
     if (length(dir_vars) == 0L) stop("No se encontraron columnas que terminen en '_dir' en dict_df.")
   } else {
     if (!is.character(dir_vars)) stop("dir_vars debe ser un vector character.")
@@ -286,7 +286,7 @@ dict_dim_dirmean_all <- function(df,
     
     idx_use <- !is.na(dv)  # SOLO estos contribuyen a la media
     if (!any(idx_use)) {
-      base_name <- if (strip_dir_suffix) sub("_dir$", "", v) else v
+      base_name <- if (strip_dir_suffix) sub("_dir", "", v) else v
       out[[paste0(out_prefix, base_name, out_suffix)]] <- NA_real_
       out[[paste0(n_prefix, base_name)]] <- 0L
       next
@@ -303,7 +303,7 @@ dict_dim_dirmean_all <- function(df,
     mean_full[ridx] <- sums[, 1] / cnts[, 1]
     n_full[ridx] <- cnts[, 1]
     
-    base_name <- if (strip_dir_suffix) sub("_dir$", "", v) else v
+    base_name <- if (strip_dir_suffix) sub("_dir", "", v) else v
     out[[paste0(out_prefix, base_name, out_suffix)]] <- mean_full
     out[[paste0(n_prefix, base_name)]] <- n_full
   }
